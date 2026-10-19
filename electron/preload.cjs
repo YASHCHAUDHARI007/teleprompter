@@ -3,8 +3,20 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('promptStudioDesktop', {
   isElectron: true,
 
+  convertAndSaveMp4: (options) => {
+    return ipcRenderer.invoke('desktop:convert-and-save-mp4', options);
+  },
+
   saveVideoToDesktop: (options) => {
     return ipcRenderer.invoke('desktop:save-video', options);
+  },
+
+  showSaveDialog: (defaultFileName) => {
+    return ipcRenderer.invoke('desktop:show-save-dialog', defaultFileName);
+  },
+
+  readFileBuffer: (filePath) => {
+    return ipcRenderer.invoke('desktop:read-file-buffer', filePath);
   },
 
   chooseDirectory: () => {

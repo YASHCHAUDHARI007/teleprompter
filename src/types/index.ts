@@ -19,19 +19,19 @@ export type FramingGuide = 'ruleOfThirds' | 'centerCross' | 'none';
 export interface StudioSettings {
   // Teleprompter typography & layout
   fontSize: number; // in pixels (18 to 72)
-  scrollSpeed: number; // 0.5 to 10
+  scrollSpeed: number; // 0.5 to 10.0
   lineHeight: number; // 1.2 to 2.4
-  textWidthPercent: number; // 40% to 100%
-  fontFamily: string; // 'Inter', 'Outfit', 'JetBrains Mono', 'Georgia', 'system-ui'
+  textWidthPercent: number; // 35% to 100%
+  fontFamily: string; // 'Inter', 'Geist', 'system-ui'
   textColor: string; // hex
   textAlign: TextAlignment;
   textOpacity: number; // 0.4 to 1.0
-  overlayBgOpacity: number; // 0 to 0.9 (scrim darkness)
-  mirrorPrompter: boolean; // flip horizontally for mirror glass teleprompters
+  overlayBgOpacity: number; // 0.0 to 0.9 (scrim darkness)
+  mirrorPrompter: boolean; // flip horizontally for optical beam-splitter mirrors
 
   // Reading Guide
   readingGuideStyle: ReadingGuideStyle;
-  readingGuidePosition: number; // percentage from top (15% to 60%)
+  readingGuidePosition: number; // percentage from top (15% to 65%)
   focusModeDim: boolean; // dim text outside reading line
 
   // Camera & Audio
@@ -77,11 +77,19 @@ export interface MediaDeviceInfoSimple {
 
 export interface ElectronDesktopAPI {
   isElectron: boolean;
+  convertAndSaveMp4: (options: {
+    buffer: Uint8Array;
+    fileName: string;
+    targetPath?: string;
+    subfolder?: string;
+  }) => Promise<{ success: boolean; filePath?: string; fileName?: string; size?: number; error?: string }>;
   saveVideoToDesktop: (options: {
     buffer: Uint8Array;
     fileName: string;
     subfolder?: string;
-  }) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+  }) => Promise<{ success: boolean; filePath?: string; fileName?: string; size?: number; error?: string }>;
+  showSaveDialog: (defaultFileName?: string) => Promise<{ canceled: boolean; filePath?: string }>;
+  readFileBuffer: (filePath: string) => Promise<{ success: boolean; buffer?: ArrayBuffer | Uint8Array; error?: string }>;
   chooseDirectory: () => Promise<{ success: boolean; dirPath?: string; canceled?: boolean }>;
   getDesktopPath: () => Promise<string>;
   openPathInFolder: (filePath: string) => Promise<boolean>;

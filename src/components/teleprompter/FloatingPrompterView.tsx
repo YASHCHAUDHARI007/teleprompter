@@ -11,14 +11,12 @@ export const FloatingPrompterView: React.FC = () => {
   const [isClickThrough, setIsClickThrough] = useState<boolean>(false);
 
   useEffect(() => {
-    // Load active script or from storage
     storageService.getScripts().then((scripts) => {
       if (scripts.length > 0) {
         setScript(scripts[0]);
       }
     });
 
-    // Listen to IPC events from main window if in Electron
     if (window.promptStudioDesktop?.onPrompterCommand) {
       const cleanup = window.promptStudioDesktop.onPrompterCommand((cmd, payload) => {
         if (cmd === 'togglePlay') setIsPlaying((p) => !p);
@@ -40,27 +38,27 @@ export const FloatingPrompterView: React.FC = () => {
 
   return (
     <div className="w-screen h-screen bg-transparent overflow-hidden flex flex-col select-none">
-      {/* Floating Header Controls */}
-      <div className="h-10 px-3 bg-slate-900/90 backdrop-blur-xl border-b border-slate-700/60 flex items-center justify-between text-xs text-slate-300">
+      {/* Restrained Floating Toolbar */}
+      <div className="h-9 px-3 bg-[#111214]/95 border-b border-[#303238] flex items-center justify-between text-xs text-[#9699A1]">
         <div className="flex items-center space-x-2">
-          <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-          <span className="font-semibold text-white truncate max-w-[200px]">
+          <span className="w-1.5 h-1.5 rounded-full bg-[#8EA9FF]" />
+          <span className="font-semibold text-[#F1F1F2] truncate max-w-[180px]">
             {script?.title || 'Floating Prompter'}
           </span>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1.5">
           <button
             onClick={() => setIsPlaying((p) => !p)}
-            className="p-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium flex items-center space-x-1 cursor-pointer"
+            className="px-2 py-0.5 rounded bg-[#1D1F23] hover:bg-[#24262B] border border-[#303238] text-[#F1F1F2] font-medium flex items-center space-x-1 cursor-pointer text-[11px]"
           >
-            {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 fill-current" />}
+            {isPlaying ? <Pause className="w-3 h-3 text-[#8EA9FF]" /> : <Play className="w-3 h-3 text-[#8EA9FF]" />}
             <span>{isPlaying ? 'Pause' : 'Play'}</span>
           </button>
 
           <button
             onClick={() => setIsPlaying(false)}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+            className="p-1 rounded bg-[#1D1F23] hover:bg-[#24262B] border border-[#303238] text-[#9699A1] hover:text-[#F1F1F2] cursor-pointer"
             title="Restart"
           >
             <RotateCcw className="w-3 h-3" />
@@ -68,27 +66,27 @@ export const FloatingPrompterView: React.FC = () => {
 
           <button
             onClick={toggleClickThrough}
-            className={`px-2 py-1 rounded-lg text-[11px] font-medium border cursor-pointer ${
+            className={`px-2 py-0.5 rounded text-[10px] font-medium border cursor-pointer ${
               isClickThrough
-                ? 'bg-amber-600/30 text-amber-300 border-amber-500'
-                : 'bg-slate-800 text-slate-400 border-slate-700'
+                ? 'bg-[#E5A93C]/20 text-[#E5A93C] border-[#E5A93C]/40'
+                : 'bg-[#1D1F23] text-[#9699A1] border-[#303238]'
             }`}
-            title="Toggle Click-Through Mode (clicks pass through to apps underneath)"
+            title="Toggle Click-Through"
           >
             Click-Through: {isClickThrough ? 'ON' : 'OFF'}
           </button>
 
           <button
             onClick={() => window.close()}
-            className="p-1 rounded text-slate-400 hover:text-white hover:bg-red-900/40 cursor-pointer"
+            className="p-1 rounded text-[#9699A1] hover:text-[#F1F1F2] hover:bg-[#24262B] cursor-pointer"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3 h-3" />
           </button>
         </div>
       </div>
 
       {/* Prompter Body */}
-      <div className="flex-1 relative overflow-hidden bg-black/60 backdrop-blur-md">
+      <div className="flex-1 relative overflow-hidden bg-black/60">
         <TeleprompterOverlay
           scriptContent={script?.content || ''}
           settings={settings}

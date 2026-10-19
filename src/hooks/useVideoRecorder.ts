@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { getOptimalRecordingMimeType } from '../services/mp4Converter';
 
 export type RecorderState = 'idle' | 'countdown' | 'recording' | 'paused' | 'stopping';
 
@@ -11,19 +12,17 @@ export interface RecordedVideoData {
   timestamp: number;
 }
 
-interface UseVideoRecorderOptions {
+interface UseVideoRecorderProps {
   onRecordingComplete?: (data: RecordedVideoData) => void;
-  countdownSec?: number;
   audioFeedbackBeep?: boolean;
 }
 
 export function useVideoRecorder({
   onRecordingComplete,
-  countdownSec = 3,
   audioFeedbackBeep = true,
-}: UseVideoRecorderOptions = {}) {
+}: UseVideoRecorderProps = {}) {
   const [recorderState, setRecorderState] = useState<RecorderState>('idle');
-  const [countdownRemaining, setCountdownRemaining] = useState<number>(countdownSec);
+  const [countdownRemaining, setCountdownRemaining] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [lastRecording, setLastRecording] = useState<RecordedVideoData | null>(null);
   const [recorderError, setRecorderError] = useState<string | null>(null);
@@ -58,23 +57,9 @@ export function useVideoRecorder({
     }
   }, [audioFeedbackBeep]);
 
-  // Determine best supported MIME type
+  // Determine best supported MIME type (prefers direct MP4 container if browser supports it)
   const getSupportedMimeType = useCallback((): string => {
-    const candidateTypes = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm;codecs=h264,opus',
-      'video/webm',
-      'video/mp4;codecs=avc1,mp4a.40.2',
-      'video/mp4',
-    ];
-
-    for (const type of candidateTypes) {
-      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) {
-        return type;
-      }
-    }
-    return '';
+    return getOptimalRecordingMimeType();
   }, []);
 
   // Prevent leaving while recording
@@ -131,7 +116,7 @@ export function useVideoRecorder({
         };
 
         recorder.onstop = () => {
-          const finalMimeType = recorder.mimeType || mimeType || 'video/webm';
+          const finalMimeType = recorder.mimeType || mimeType || 'video/mp4';
           const blob = new Blob(recordedChunksRef.current, { type: finalMimeType });
           const blobUrl = URL.createObjectURL(blob);
 

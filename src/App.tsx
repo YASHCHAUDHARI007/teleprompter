@@ -3,53 +3,63 @@ import type { Script, StudioSettings, RecordingHistoryItem } from './types';
 import { storageService } from './services/storage';
 import { useCameraAndAudio } from './hooks/useCameraAndAudio';
 import { useVideoRecorder, type RecordedVideoData } from './hooks/useVideoRecorder';
-import { LeftSidebar } from './components/sidebar/LeftSidebar';
 import { StudioHeader } from './components/studio/StudioHeader';
 import { StudioStage } from './components/studio/StudioStage';
 import { RecordingControlsBar } from './components/studio/RecordingControlsBar';
 import { ScriptEditorView } from './components/editor/ScriptEditorView';
 import { SettingsPanel } from './components/settings/SettingsPanel';
-import { RecordingReviewModal } from './components/recording/RecordingReviewModal';
 import { RecordingHistoryDrawer } from './components/recording/RecordingHistoryDrawer';
+import { RecordingReviewModal } from './components/recording/RecordingReviewModal';
 import { KeyboardShortcutsModal } from './components/studio/KeyboardShortcutsModal';
 import { FloatingPrompterView } from './components/teleprompter/FloatingPrompterView';
 
-export function App() {
-  // Check if running in floating popout window mode
-  const isFloatingMode = new URLSearchParams(window.location.search).get('mode') === 'floating';
-  if (isFloatingMode) {
-    return <FloatingPrompterView />;
-  }
-
-  return <StudioApp />;
-}
-
 function StudioApp() {
-  // App state
+  // Application States
   const [scripts, setScripts] = useState<Script[]>([]);
   const [currentScript, setCurrentScript] = useState<Script | null>(null);
   const [settings, setSettings] = useState<StudioSettings>(storageService.getSettings());
   const [recordingHistory, setRecordingHistory] = useState<RecordingHistoryItem[]>([]);
   const [viewMode, setViewMode] = useState<'studio' | 'editor'>('studio');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Prompter Playback State
+  const [isPrompterPlaying, setIsPrompterPlaying] = useState(false);
+
+  // Modals & Panels State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-
-  // Teleprompter state
-  const [isPrompterPlaying, setIsPrompterPlaying] = useState(false);
-
-  // Video review modal state
   const [currentReviewTake, setCurrentReviewTake] = useState<RecordedVideoData | null>(null);
 
-  // Detect Electron environment
-  const isElectron = !!window.promptStudioDesktop?.isElectron;
-
-  // Video element ref for stage
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const isElectron = Boolean(window.promptStudioDesktop?.isElectron);
 
-  // Media (Webcam & Mic) Hook
+  // Initialize scripts and history from IndexedDB / Storage
+  useEffect(() => {
+    async function loadInitialData() {
+      const loadedScripts = await storageService.getScripts();
+      setScripts(loadedScripts);
+      if (loadedScripts.length > 0) {
+        setCurrentScript(loadedScripts[0]);
+      }
+
+      const history = await storageService.getRecordings();
+      setRecordingHistory(history);
+    }
+
+    loadInitialData();
+  }, []);
+
+  // Update Settings handler
+  const handleUpdateSettings = useCallback((newSettings: Partial<StudioSettings>) => {
+    setSettings((prev) => {
+      const updated = { ...prev, ...newSettings };
+      storageService.saveSettings(updated);
+      return updated;
+    });
+  }, []);
+
+  // Camera and Audio stream management
   const {
     stream,
     videoDevices,
@@ -66,13 +76,19 @@ function StudioApp() {
   } = useCameraAndAudio({
     videoDeviceId: settings.selectedVideoDeviceId,
     audioDeviceId: settings.selectedAudioDeviceId,
-    aspectRatio: settings.aspectRatio,
   });
+
+  // Attach media stream to video element
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
 
   // Video Recorder Hook
   const handleRecordingComplete = useCallback(
-    (recordedData: RecordedVideoData) => {
-      setCurrentReviewTake(recordedData);
+    (recordingData: RecordedVideoData) => {
+      setCurrentReviewTake(recordingData);
       if (settings.autoStopPrompterOnRecordEnd) {
         setIsPrompterPlaying(false);
       }
@@ -91,123 +107,100 @@ function StudioApp() {
     cancelCountdown,
   } = useVideoRecorder({
     onRecordingComplete: handleRecordingComplete,
-    countdownSec: settings.countdownSec,
     audioFeedbackBeep: settings.audioFeedbackBeep,
   });
 
-  // Load scripts and recordings on initial mount
-  useEffect(() => {
-    storageService.getScripts().then((loaded) => {
-      setScripts(loaded);
-      if (loaded.length > 0) {
-        setCurrentScript(loaded[0]);
+  // Trigger Start Recording workflow
+  const handleStartRecording = useCallback(() => {
+    if (!stream) {
+      retryPermissions();
+      return;
+    }
+
+    triggerStartRecording(stream, settings.countdownSec);
+
+    if (settings.autoScrollOnRecord) {
+      if (settings.countdownSec > 0) {
+        setTimeout(() => {
+          setIsPrompterPlaying(true);
+        }, settings.countdownSec * 1000);
+      } else {
+        setIsPrompterPlaying(true);
       }
-    });
+    }
+  }, [retryPermissions, settings.autoScrollOnRecord, settings.countdownSec, stream, triggerStartRecording]);
 
-    storageService.getRecordings().then((loaded) => {
-      setRecordingHistory(loaded);
-    });
-  }, []);
-
-  // Update and persist settings
-  const handleUpdateSettings = useCallback(
-    (partial: Partial<StudioSettings>) => {
-      setSettings((prev) => {
-        const next = { ...prev, ...partial };
-        storageService.saveSettings(next);
-        return next;
-      });
-    },
-    []
-  );
-
-  // Script management
-  const handleSelectScript = (script: Script) => {
-    setCurrentScript(script);
-    setIsPrompterPlaying(false);
+  // Script Actions
+  const handleSelectScript = (id: string) => {
+    const found = scripts.find((s) => s.id === id);
+    if (found) {
+      setCurrentScript(found);
+    }
   };
 
-  const handleNewScript = () => {
-    const newScript: Script = {
-      id: `script-${Date.now()}`,
-      title: 'New Script',
-      content: 'Write or paste your script content here...\n\n[Smile & look at camera]',
-      category: 'custom',
-      wordCount: 11,
-      estimatedDurationSec: 5,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    storageService.saveScript(newScript).then(() => {
-      setScripts((prev) => [newScript, ...prev]);
-      setCurrentScript(newScript);
-      setViewMode('editor');
-    });
-  };
-
-  const handleUpdateScript = (partial: Partial<Script>) => {
+  const handleUpdateScript = async (updatedFields: Partial<Script>) => {
     if (!currentScript) return;
     const updated: Script = {
       ...currentScript,
-      ...partial,
+      ...updatedFields,
       updatedAt: Date.now(),
     };
     setCurrentScript(updated);
     setScripts((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    storageService.saveScript(updated);
+    await storageService.saveScript(updated);
   };
 
-  const handleDuplicateScript = (scriptToCopy: Script) => {
-    const copy: Script = {
-      ...scriptToCopy,
-      id: `script-${Date.now()}`,
-      title: `${scriptToCopy.title} (Copy)`,
+  const handleNewScript = async () => {
+    const newScript: Script = {
+      id: `script_${Date.now()}`,
+      title: 'New Script',
+      content: 'Write or paste your presentation script here...',
+      category: 'custom',
+      wordCount: 8,
+      estimatedDurationSec: 4,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    storageService.saveScript(copy).then(() => {
-      setScripts((prev) => [copy, ...prev]);
-      setCurrentScript(copy);
-    });
+
+    const updated = [newScript, ...scripts];
+    setScripts(updated);
+    setCurrentScript(newScript);
+    await storageService.saveScript(newScript);
+    setViewMode('editor');
   };
 
-  const handleDeleteScript = (id: string) => {
-    storageService.deleteScript(id).then(() => {
-      const remaining = scripts.filter((s) => s.id !== id);
-      setScripts(remaining);
-      if (currentScript?.id === id) {
-        setCurrentScript(remaining[0] || null);
-      }
-    });
+  const handleDuplicateScript = async (script: Script) => {
+    const duplicated: Script = {
+      ...script,
+      id: `script_${Date.now()}`,
+      title: `${script.title} (Copy)`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const updated = [duplicated, ...scripts];
+    setScripts(updated);
+    setCurrentScript(duplicated);
+    await storageService.saveScript(duplicated);
   };
 
-  // Recording actions
-  const handleStartRecording = () => {
-    if (!stream) {
-      alert('Camera stream is not active. Please grant camera and microphone permissions first.');
-      return;
-    }
-
-    // Auto-scroll logic if enabled: start scrolling right after countdown finishes
-    if (settings.autoScrollOnRecord) {
-      setTimeout(() => {
-        setIsPrompterPlaying(true);
-      }, (settings.countdownSec || 0) * 1000);
-    }
-
-    triggerStartRecording(stream, settings.countdownSec);
+  const handleDeleteScript = async (id: string) => {
+    if (scripts.length <= 1) return;
+    await storageService.deleteScript(id);
+    const filtered = scripts.filter((s) => s.id !== id);
+    setScripts(filtered);
+    setCurrentScript(filtered[0] || null);
   };
 
+  // Recording History Actions
   const handleSaveToHistory = async (rec: RecordedVideoData, savedPath?: string) => {
     const historyItem: RecordingHistoryItem = {
-      id: `rec-${rec.timestamp}`,
-      scriptId: currentScript?.id || 'none',
+      id: `rec_${rec.timestamp}`,
+      scriptId: currentScript?.id || 'unknown',
       scriptTitle: currentScript?.title || 'Take',
       durationSec: rec.durationSec,
       fileSizeBytes: rec.fileSizeBytes,
       mimeType: rec.mimeType,
-      fileName: `Take_${new Date(rec.timestamp).toISOString().replace(/[:.]/g, '-')}.webm`,
+      fileName: `PromptStudio_${currentScript?.title || 'Take'}_${Date.now()}.mp4`,
       blob: rec.blob,
       blobUrl: rec.blobUrl,
       timestamp: rec.timestamp,
@@ -232,7 +225,7 @@ function StudioApp() {
     }
   };
 
-  // Floating window launch (Mode B)
+  // Floating window launch
   const handleLaunchFloatingWindow = () => {
     if (isElectron && window.promptStudioDesktop?.toggleFloatingOverlay) {
       window.promptStudioDesktop.toggleFloatingOverlay({
@@ -240,7 +233,6 @@ function StudioApp() {
         settings,
       });
     } else {
-      // Browser popup fallback
       const width = 640;
       const height = 480;
       const left = window.screen.width / 2 - width / 2;
@@ -256,7 +248,6 @@ function StudioApp() {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Do not trigger if typing in input, textarea, or contentEditable
       const target = e.target as HTMLElement;
       if (
         target &&
@@ -267,18 +258,15 @@ function StudioApp() {
         return;
       }
 
-      // Space: Toggle Prompter Play/Pause
       if (e.code === 'Space') {
         e.preventDefault();
         setIsPrompterPlaying((p) => !p);
       }
 
-      // R: Restart Prompter to Top
       if (e.key === 'r' || e.key === 'R') {
         setIsPrompterPlaying(false);
       }
 
-      // [ and ]: Decrease / Increase scroll speed
       if (e.key === '[') {
         handleUpdateSettings({
           scrollSpeed: Math.max(0.5, +(settings.scrollSpeed - 0.2).toFixed(1)),
@@ -290,17 +278,14 @@ function StudioApp() {
         });
       }
 
-      // F: Toggle Focus Mode Dimmer
       if (e.key === 'f' || e.key === 'F') {
         handleUpdateSettings({ focusModeDim: !settings.focusModeDim });
       }
 
-      // M: Toggle Mirror Prompter Text
       if (e.key === 'm' || e.key === 'M') {
         handleUpdateSettings({ mirrorPrompter: !settings.mirrorPrompter });
       }
 
-      // Escape: Close modals
       if (e.key === 'Escape') {
         setIsSettingsOpen(false);
         setIsHistoryOpen(false);
@@ -314,91 +299,93 @@ function StudioApp() {
   }, [settings.scrollSpeed, settings.focusModeDim, settings.mirrorPrompter, handleUpdateSettings]);
 
   return (
-    <div className="flex h-screen w-screen bg-[#0b0f17] text-slate-100 overflow-hidden font-sans">
-      {/* Left Sidebar */}
-      <LeftSidebar
+    <div className="flex flex-col h-screen w-screen bg-[#111214] text-[#F1F1F2] overflow-hidden font-sans select-none">
+      {/* 1. Compact Top Application Toolbar (56px) */}
+      <StudioHeader
+        currentScript={currentScript}
         scripts={scripts}
-        currentScriptId={currentScript?.id || ''}
         onSelectScript={handleSelectScript}
         onNewScript={handleNewScript}
+        onUpdateScriptTitle={(title) => handleUpdateScript({ title })}
+        viewMode={viewMode}
+        onChangeViewMode={setViewMode}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
+        onLaunchFloatingWindow={handleLaunchFloatingWindow}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        recordingHistory={recordingHistory}
         onOpenHistory={() => setIsHistoryOpen(true)}
-        isOpen={isSidebarOpen}
-        onToggleOpen={() => setIsSidebarOpen((prev) => !prev)}
+        historyCount={recordingHistory.length}
+        isElectron={isElectron}
+        videoDevices={videoDevices}
+        audioDevices={audioDevices}
+        currentVideoDevice={currentVideoDevice}
+        currentAudioDevice={currentAudioDevice}
+        onSelectVideoDevice={switchVideoDevice}
+        onSelectAudioDevice={switchAudioDevice}
+        recorderState={recorderState}
+        onTriggerRecord={handleStartRecording}
+        onStopRecord={stopRecording}
       />
 
-      {/* Main Workspace Area */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
-        {/* Studio Top Header */}
-        <StudioHeader
-          currentScript={currentScript}
-          onUpdateScriptTitle={(title) => handleUpdateScript({ title })}
-          viewMode={viewMode}
-          onChangeViewMode={setViewMode}
-          isFullscreen={isFullscreen}
-          onToggleFullscreen={handleToggleFullscreen}
-          onLaunchFloatingWindow={handleLaunchFloatingWindow}
-          isElectron={isElectron}
-          currentCameraLabel={videoDevices.find((d) => d.deviceId === currentVideoDevice)?.label}
-          currentMicLabel={audioDevices.find((d) => d.deviceId === currentAudioDevice)?.label}
-        />
+      {/* 2. Main Workspace */}
+      <main className="flex-1 relative flex flex-col overflow-hidden">
+        {viewMode === 'studio' ? (
+          <>
+            {/* Live Camera Preview & Prompter Stage */}
+            <StudioStage
+              stream={stream}
+              settings={settings}
+              onUpdateSettings={handleUpdateSettings}
+              scriptContent={currentScript?.content || ''}
+              currentScript={currentScript}
+              onUpdateScript={handleUpdateScript}
+              isPrompterPlaying={isPrompterPlaying}
+              onTogglePrompterPlay={() => setIsPrompterPlaying((p) => !p)}
+              onRestartPrompter={() => setIsPrompterPlaying(false)}
+              onSpeedChange={(speed) => handleUpdateSettings({ scrollSpeed: speed })}
+              recorderState={recorderState}
+              elapsedSeconds={elapsedSeconds}
+              countdownRemaining={countdownRemaining}
+              audioLevel={audioLevel}
+              hasPermissions={hasPermissions}
+              permissionError={permissionError}
+              isInitializingMedia={isInitializingMedia}
+              onRetryPermissions={retryPermissions}
+              videoRef={videoRef}
+            />
 
-        {/* Workspace Central Body */}
-        <div className="flex-1 relative flex flex-col overflow-hidden">
-          {viewMode === 'studio' ? (
-            <>
-              {/* Studio Camera & Prompter Stage */}
-              <StudioStage
-                stream={stream}
-                settings={settings}
-                scriptContent={currentScript?.content || ''}
-                isPrompterPlaying={isPrompterPlaying}
-                onTogglePrompterPlay={() => setIsPrompterPlaying((p) => !p)}
-                onRestartPrompter={() => setIsPrompterPlaying(false)}
-                onSpeedChange={(speed) => handleUpdateSettings({ scrollSpeed: speed })}
-                recorderState={recorderState}
-                elapsedSeconds={elapsedSeconds}
-                countdownRemaining={countdownRemaining}
-                audioLevel={audioLevel}
-                hasPermissions={hasPermissions}
-                permissionError={permissionError}
-                isInitializingMedia={isInitializingMedia}
-                onRetryPermissions={retryPermissions}
-                videoRef={videoRef}
-              />
+            {/* Bottom Professional Recording Strip (56px) */}
+            <RecordingControlsBar
+              settings={settings}
+              onUpdateSettings={handleUpdateSettings}
+              isPrompterPlaying={isPrompterPlaying}
+              onTogglePrompter={() => setIsPrompterPlaying((p) => !p)}
+              onRestartPrompter={() => setIsPrompterPlaying(false)}
+              recorderState={recorderState}
+              onStartRecording={handleStartRecording}
+              onPauseRecording={pauseRecording}
+              onResumeRecording={resumeRecording}
+              onStopRecording={recorderState === 'countdown' ? cancelCountdown : stopRecording}
+              onOpenShortcuts={() => setIsShortcutsOpen(true)}
+              audioLevel={audioLevel}
+              elapsedSeconds={elapsedSeconds}
+            />
+          </>
+        ) : (
+          currentScript && (
+            <ScriptEditorView
+              script={currentScript}
+              onUpdateScript={handleUpdateScript}
+              onDuplicateScript={handleDuplicateScript}
+              onDeleteScript={handleDeleteScript}
+              onReturnToStudio={() => setViewMode('studio')}
+              wordsPerMinute={settings.wordsPerMinute}
+            />
+          )
+        )}
+      </main>
 
-              {/* Bottom Playback & Recording Controls */}
-              <RecordingControlsBar
-                settings={settings}
-                onUpdateSettings={handleUpdateSettings}
-                isPrompterPlaying={isPrompterPlaying}
-                onTogglePrompter={() => setIsPrompterPlaying((p) => !p)}
-                onRestartPrompter={() => setIsPrompterPlaying(false)}
-                recorderState={recorderState}
-                onStartRecording={handleStartRecording}
-                onPauseRecording={pauseRecording}
-                onResumeRecording={resumeRecording}
-                onStopRecording={recorderState === 'countdown' ? cancelCountdown : stopRecording}
-                onOpenSettings={() => setIsSettingsOpen(true)}
-                onOpenShortcuts={() => setIsShortcutsOpen(true)}
-              />
-            </>
-          ) : (
-            currentScript && (
-              <ScriptEditorView
-                script={currentScript}
-                onUpdateScript={handleUpdateScript}
-                onDuplicateScript={handleDuplicateScript}
-                onDeleteScript={handleDeleteScript}
-                wordsPerMinute={settings.wordsPerMinute}
-              />
-            )
-          )}
-        </div>
-      </div>
-
-      {/* Settings Panel Drawer */}
+      {/* Settings Inspector Drawer */}
       <SettingsPanel
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -422,13 +409,13 @@ function StudioApp() {
         isElectron={isElectron}
       />
 
-      {/* Keyboard Shortcuts Modal */}
+      {/* Keyboard Shortcuts Sheet */}
       <KeyboardShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
       />
 
-      {/* Recording Review & Export Modal */}
+      {/* Recording Review & MP4 Export Modal */}
       <RecordingReviewModal
         recording={currentReviewTake}
         script={currentScript}
@@ -443,6 +430,17 @@ function StudioApp() {
       />
     </div>
   );
+}
+
+export function App() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const isFloatingMode = searchParams.get('mode') === 'floating';
+
+  if (isFloatingMode) {
+    return <FloatingPrompterView />;
+  }
+
+  return <StudioApp />;
 }
 
 export default App;
