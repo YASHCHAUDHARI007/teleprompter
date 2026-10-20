@@ -15,8 +15,12 @@
     "electron:start": "electron ."
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@tailwindcss/vite": "^4.3.3",
+    "ffmpeg-static": "^5.3.0",
     "lucide-react": "^1.54.0",
+    "mp4-muxer": "^5.2.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3"

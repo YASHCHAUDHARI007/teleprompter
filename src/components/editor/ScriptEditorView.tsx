@@ -2,12 +2,12 @@ import React, { useRef, useState, useEffect } from 'react';
 import type { Script } from '../../types';
 import {
   Clock,
-  Sparkles,
   Download,
   Upload,
   Copy,
   Trash2,
   Check,
+  Video,
 } from 'lucide-react';
 
 interface ScriptEditorViewProps {
@@ -15,6 +15,7 @@ interface ScriptEditorViewProps {
   onUpdateScript: (updated: Partial<Script>) => void;
   onDuplicateScript: (script: Script) => void;
   onDeleteScript: (id: string) => void;
+  onReturnToStudio: () => void;
   wordsPerMinute: number;
 }
 
@@ -23,25 +24,21 @@ export const ScriptEditorView: React.FC<ScriptEditorViewProps> = ({
   onUpdateScript,
   onDuplicateScript,
   onDeleteScript,
+  onReturnToStudio,
   wordsPerMinute,
 }) => {
   const [content, setContent] = useState(script.content);
   const [title, setTitle] = useState(script.title);
-  const [isSaved, setIsSaved] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync incoming script changes
   useEffect(() => {
     setContent(script.content);
     setTitle(script.title);
   }, [script.id]);
 
-  // Recalculate word count and duration when content changes
   const handleContentChange = (newText: string) => {
     setContent(newText);
-    setIsSaved(false);
 
-    // Calculate words
     const words = newText.trim() ? newText.trim().split(/\s+/).length : 0;
     const duration = Math.round((words / wordsPerMinute) * 60);
 
@@ -51,8 +48,6 @@ export const ScriptEditorView: React.FC<ScriptEditorViewProps> = ({
       estimatedDurationSec: duration,
       updatedAt: Date.now(),
     });
-
-    setIsSaved(true);
   };
 
   const handleTitleChange = (newTitle: string) => {
@@ -63,7 +58,6 @@ export const ScriptEditorView: React.FC<ScriptEditorViewProps> = ({
     });
   };
 
-  // Insert stage direction at cursor or end
   const insertStageDirection = (text: string) => {
     const textarea = document.getElementById('script-textarea') as HTMLTextAreaElement;
     if (!textarea) return;
@@ -73,7 +67,7 @@ export const ScriptEditorView: React.FC<ScriptEditorViewProps> = ({
     const before = content.substring(0, start);
     const after = content.substring(end);
 
-    const inserted = `\n\n[${text}]\n\n`;
+    const inserted = `\n[${text}]\n`;
     const updated = before + inserted + after;
     handleContentChange(updated);
 
@@ -83,7 +77,6 @@ export const ScriptEditorView: React.FC<ScriptEditorViewProps> = ({
     }, 50);
   };
 
-  // Import .txt or .md file
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -105,53 +98,35 @@ export const ScriptEditorView: React.FC<ScriptEditorViewProps> = ({
     }
   };
 
-  // Export script as plain text
   const handleExportText = () => {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}.txt`;
+    a.download = `${title.replace(/[^a-zA-Z0-9_-]/g, '_') || 'script'}.md`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
-  const formatSpeakingTime = (sec: number) => {
-    const mins = Math.floor(sec / 60);
-    const remainder = sec % 60;
-    return `${mins}m ${remainder > 0 ? `${remainder}s` : ''}`;
-  };
+  const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+  const estimatedMins = Math.floor((words / wordsPerMinute) * 60 / 60);
+  const estimatedSecs = Math.round(((words / wordsPerMinute) * 60) % 60);
 
   return (
-    <div className="flex-1 w-full h-full bg-[#0b0f17] flex flex-col overflow-hidden p-4 sm:p-6 select-none">
-      <div className="max-w-4xl w-full mx-auto flex-1 flex flex-col bg-[#111827] rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
-        {/* Editor Toolbar */}
-        <div className="border-b border-slate-800 px-6 py-4 flex flex-wrap items-center justify-between gap-4 bg-[#141d2e]">
-          {/* Title input */}
-          <div className="flex-1 min-w-[240px]">
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => handleTitleChange(e.target.value)}
-              placeholder="Script Title..."
-              className="w-full bg-transparent text-lg font-bold text-slate-100 focus:outline-none placeholder:text-slate-500"
-            />
-            <div className="flex items-center space-x-3 text-xs text-slate-400 mt-1">
-              <span>{script.wordCount} words</span>
-              <span>•</span>
-              <span className="flex items-center space-x-1 text-blue-300">
-                <Clock className="w-3.5 h-3.5" />
-                <span>Estimated speaking time: {formatSpeakingTime(script.estimatedDurationSec)}</span>
-              </span>
-              <span>•</span>
-              <span className={`${isSaved ? 'text-emerald-400' : 'text-amber-400'} flex items-center space-x-1`}>
-                <Check className="w-3.5 h-3.5" />
-                <span>{isSaved ? 'Autosaved locally' : 'Saving...'}</span>
-              </span>
-            </div>
-          </div>
+    <div className="flex-1 overflow-y-auto bg-[#17181B] flex flex-col items-center p-4 sm:p-8 select-text">
+      <div className="w-full max-w-3xl space-y-6">
+        {/* Top Control Bar */}
+        <div className="flex items-center justify-between border-b border-[#303238] pb-4">
+          <button
+            onClick={onReturnToStudio}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded bg-[#1D1F23] hover:bg-[#24262B] border border-[#303238] text-xs text-[#F1F1F2] transition-colors cursor-pointer"
+          >
+            <Video className="w-3.5 h-3.5 text-[#8EA9FF]" />
+            <span>Return to Studio</span>
+          </button>
 
-          {/* Action buttons */}
           <div className="flex items-center space-x-2">
             <input
               type="file"
@@ -162,78 +137,88 @@ export const ScriptEditorView: React.FC<ScriptEditorViewProps> = ({
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              title="Import .txt or .md script"
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition cursor-pointer"
+              className="p-1.5 rounded hover:bg-[#1D1F23] text-[#9699A1] hover:text-[#F1F1F2] transition-colors cursor-pointer"
+              title="Import script (.txt, .md)"
             >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Import</span>
+              <Upload className="w-4 h-4" />
             </button>
 
             <button
               onClick={handleExportText}
-              title="Export script as .txt"
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition cursor-pointer"
+              className="p-1.5 rounded hover:bg-[#1D1F23] text-[#9699A1] hover:text-[#F1F1F2] transition-colors cursor-pointer"
+              title="Export script (.md)"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export</span>
+              <Download className="w-4 h-4" />
             </button>
 
             <button
               onClick={() => onDuplicateScript(script)}
+              className="p-1.5 rounded hover:bg-[#1D1F23] text-[#9699A1] hover:text-[#F1F1F2] transition-colors cursor-pointer"
               title="Duplicate script"
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700 transition cursor-pointer"
             >
               <Copy className="w-4 h-4" />
             </button>
 
             <button
-              onClick={() => {
-                if (confirm(`Are you sure you want to delete "${script.title}"?`)) {
-                  onDeleteScript(script.id);
-                }
-              }}
+              onClick={() => onDeleteScript(script.id)}
+              className="p-1.5 rounded hover:bg-[#1D1F23] text-[#FF5C57] hover:text-[#FF7A75] transition-colors cursor-pointer"
               title="Delete script"
-              className="p-2 rounded-lg bg-slate-800 hover:bg-red-950/60 text-slate-400 hover:text-red-400 border border-slate-700 transition cursor-pointer"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Stage Directions Helper Bar */}
-        <div className="px-6 py-2.5 bg-[#0f172a] border-b border-slate-800/80 flex items-center space-x-2 overflow-x-auto text-xs">
-          <span className="text-slate-400 font-medium flex items-center space-x-1">
-            <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-            <span>Insert Stage Cue:</span>
-          </span>
-          {[
-            'Pause 2s',
-            'Look at camera',
-            'Smile',
-            'Emphasize',
-            'Deep breath',
-            'Next slide',
-          ].map((tag) => (
+        {/* Script Title & Metadata */}
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => handleTitleChange(e.target.value)}
+            placeholder="Script Title..."
+            className="w-full bg-transparent text-2xl font-semibold text-[#F1F1F2] tracking-tight focus:outline-none placeholder-[#646770]"
+          />
+
+          <div className="flex items-center space-x-3 text-xs text-[#9699A1]">
+            <span>{words} words</span>
+            <span>•</span>
+            <div className="flex items-center space-x-1">
+              <Clock className="w-3 h-3 text-[#8EA9FF]" />
+              <span>
+                ~{estimatedMins > 0 ? `${estimatedMins}m ` : ''}{estimatedSecs}s speaking ({wordsPerMinute} WPM)
+              </span>
+            </div>
+            <span>•</span>
+            <span className="text-[#30D158] flex items-center space-x-1">
+              <Check className="w-3 h-3" />
+              <span>Autosaved</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Stage Cues Toolbar */}
+        <div className="flex items-center space-x-2 py-2 border-y border-[#303238] text-xs">
+          <span className="text-[#9699A1] text-[11px] font-medium mr-1">Insert Cue:</span>
+          {['Pause 2s', 'Smile', 'Look at camera', 'Emphasize'].map((cue) => (
             <button
-              key={tag}
-              onClick={() => insertStageDirection(tag)}
-              className="px-2.5 py-1 rounded-md bg-blue-950/60 hover:bg-blue-900/60 border border-blue-500/30 text-blue-300 font-medium whitespace-nowrap transition cursor-pointer"
+              key={cue}
+              onClick={() => insertStageDirection(cue)}
+              className="px-2.5 py-1 rounded bg-[#1D1F23] hover:bg-[#24262B] border border-[#303238] text-[11px] text-[#8EA9FF] transition-colors cursor-pointer"
             >
-              + [{tag}]
+              +{cue}
             </button>
           ))}
         </div>
 
-        {/* Main Textarea */}
-        <div className="flex-1 p-6 flex flex-col">
-          <textarea
-            id="script-textarea"
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            placeholder="Type or paste your presentation, YouTube, or talking-head script here...&#10;&#10;Tip: Leave double line breaks between paragraphs for optimal teleprompter pacing. Insert stage directions in brackets like [Smile] or [Pause 2s]."
-            className="flex-1 w-full bg-transparent text-slate-200 text-base sm:text-lg leading-relaxed focus:outline-none resize-none font-sans placeholder:text-slate-600"
-          />
-        </div>
+        {/* Clean Writing Textarea */}
+        <textarea
+          id="script-textarea"
+          value={content}
+          onChange={(e) => handleContentChange(e.target.value)}
+          placeholder="Start typing your script here... Use paragraph breaks to separate sections. Add stage cues using the toolbar above."
+          rows={22}
+          className="w-full bg-transparent text-[#F1F1F2] text-[16px] leading-[1.8] tracking-normal focus:outline-none resize-none font-sans"
+        />
       </div>
     </div>
   );
